@@ -12,25 +12,23 @@ async function initFFmpeg() {
     
     ffmpeg.on('log', ({ message }) => {
         console.log(message);
-        // 從 log 提取資訊
         parseFFmpegLog(message);
     });
     
     ffmpeg.on('progress', ({ progress, time }) => {
         const percent = Math.round(progress * 100);
         document.getElementById('progressBar').style.width = percent + '%';
-        console.log(`Progress: ${percent}%`);
     });
 
-    const baseURL = './ffmpeg-core';
-    
+    // 混合方案：JS本地，WASM用CDN
     await ffmpeg.load({
-        coreURL: await toBlobURL(`${baseURL}/ffmpeg-core.js`, 'text/javascript'),
-        wasmURL: await toBlobURL(`${baseURL}/ffmpeg-core.wasm`, 'application/wasm'),
+        coreURL: await toBlobURL('./ffmpeg-core/ffmpeg-core.js', 'text/javascript'),
+        wasmURL: await toBlobURL('https://unpkg.com/@ffmpeg/core@0.12.6/dist/esm/ffmpeg-core.wasm', 'application/wasm'),
     });
     
     return ffmpeg;
 }
+
 
 function parseFFmpegLog(message) {
     // 提取時長
@@ -358,3 +356,4 @@ function downloadVideo() {
     showStatus('✅ 下載已開始', 'success');
     setTimeout(hideStatus, 3000);
 }
+
