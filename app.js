@@ -20,14 +20,17 @@ async function initFFmpeg() {
         document.getElementById('progressBar').style.width = percent + '%';
     });
 
-    // 混合方案：JS本地，WASM用CDN
+    // 改用 jsDelivr CDN（支援 CORS）
+    const baseURL = 'https://cdn.jsdelivr.net/npm/@ffmpeg/core@0.12.6/dist/esm';
+    
     await ffmpeg.load({
-        coreURL: await toBlobURL('./ffmpeg-core/ffmpeg-core.js', 'text/javascript'),
-        wasmURL: await toBlobURL('https://unpkg.com/@ffmpeg/core@0.12.6/dist/esm/ffmpeg-core.wasm', 'application/wasm'),
+        coreURL: await toBlobURL(`${baseURL}/ffmpeg-core.js`, 'text/javascript'),
+        wasmURL: await toBlobURL(`${baseURL}/ffmpeg-core.wasm`, 'application/wasm'),
     });
     
     return ffmpeg;
 }
+
 
 
 function parseFFmpegLog(message) {
@@ -356,4 +359,5 @@ function downloadVideo() {
     showStatus('✅ 下載已開始', 'success');
     setTimeout(hideStatus, 3000);
 }
+
 
