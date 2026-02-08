@@ -4,8 +4,14 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>安全影片壓縮工具</title>
+    <!-- 修正：使用正確的CDN -->
+    <script type="module">
+        import { FFmpeg } from 'https://unpkg.com/@ffmpeg/ffmpeg@0.12.10/dist/esm/index.js';
+        import { toBlobURL } from 'https://unpkg.com/@ffmpeg/util@0.12.1/dist/esm/index.js';
+        window.FFmpeg = FFmpeg;
+        window.toBlobURL = toBlobURL;
+    </script>
     <style>
-        /* 保持原本的CSS */
         * { margin: 0; padding: 0; box-sizing: border-box; }
         body {
             font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
@@ -46,6 +52,7 @@
         }
         .upload-area:hover { border-color: #667eea; background: #f8f9ff; }
         .upload-area.dragover { border-color: #667eea; background: #e8ebff; }
+        .upload-area.loading { pointer-events: none; opacity: 0.6; }
         input[type="file"] { display: none; }
         .btn {
             background: #667eea;
@@ -56,6 +63,7 @@
             cursor: pointer;
             font-size: 16px;
             transition: background 0.3s;
+            font-weight: 500;
         }
         .btn:hover { background: #5568d3; }
         .btn:disabled {
@@ -67,9 +75,9 @@
             border-radius: 8px;
             padding: 16px;
             margin: 16px 0;
-            font-family: monospace;
+            font-family: 'Courier New', monospace;
             font-size: 13px;
-            line-height: 1.6;
+            line-height: 1.8;
         }
         .info-box h3 {
             margin-bottom: 12px;
@@ -77,6 +85,9 @@
             color: #555;
             font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
         }
+        .info-row { display: flex; gap: 8px; margin: 4px 0; }
+        .info-label { color: #666; min-width: 120px; }
+        .info-value { color: #333; font-weight: 500; }
         .options {
             display: grid;
             gap: 16px;
@@ -110,6 +121,7 @@
             text-align: center;
             font-weight: 600;
             color: #667eea;
+            font-size: 15px;
         }
         .prediction {
             background: #fff3e0;
@@ -121,9 +133,9 @@
         }
         .progress {
             width: 100%;
-            height: 8px;
+            height: 10px;
             background: #e0e0e0;
-            border-radius: 4px;
+            border-radius: 5px;
             overflow: hidden;
             margin: 16px 0;
             display: none;
@@ -134,7 +146,7 @@
             transition: width 0.3s;
             width: 0%;
         }
-        .hidden { display: none; }
+        .hidden { display: none !important; }
         .radio-group {
             display: flex;
             gap: 16px;
@@ -144,7 +156,18 @@
             align-items: center;
             gap: 6px;
             font-weight: normal;
+            cursor: pointer;
         }
+        .status {
+            text-align: center;
+            padding: 12px;
+            margin: 16px 0;
+            border-radius: 6px;
+            font-weight: 500;
+        }
+        .status.loading { background: #e3f2fd; color: #1976d2; }
+        .status.success { background: #e8f5e9; color: #2e7d32; }
+        .status.error { background: #ffebee; color: #c62828; }
     </style>
 </head>
 <body>
@@ -157,8 +180,10 @@
         <div class="upload-area" id="uploadArea">
             <input type="file" id="fileInput" accept="video/*">
             <p style="font-size: 18px; margin-bottom: 8px;">📁 點擊或拖放影片檔案</p>
-            <p style="color: #888; font-size: 14px;">支援 MP4, MOV, AVI 等格式（建議 < 500MB）</p>
+            <p style="color: #888; font-size: 14px;">支援 MP4, MOV, AVI 等格式（建議 < 200MB）</p>
         </div>
+
+        <div id="status" class="status hidden"></div>
 
         <div id="videoInfo" class="info-box hidden">
             <h3>原始影片資訊</h3>
@@ -172,7 +197,7 @@
                 <div class="option-group">
                     <label>編碼器</label>
                     <select id="codec">
-                        <option value="libx264">H.264 (相容性好)</option>
+                        <option value="libx264">H.264 (相容性好，推薦)</option>
                         <option value="libx265">H.265 (更小但較慢)</option>
                     </select>
                 </div>
@@ -187,10 +212,11 @@
                 </div>
 
                 <div class="option-group" id="crfOption">
-                    <label>CRF 值 (18-32)</label>
+                    <label>CRF 值</label>
                     <div class="range-container">
-                        <input type="range" id="crf" min="18" max="32" value="23">
+                        <input type="range" id="crf" min="18" max="35" value="23">
                         <span class="range-value" id="crfValue">23</span>
+                        <small style="color: #888;">(越低越清晰)</small>
                     </div>
                 </div>
 
@@ -240,249 +266,10 @@
             </div>
 
             <button class="btn" id="compressBtn">🚀 開始壓縮</button>
-            <button class="btn hidden" id="downloadBtn">💾 下載壓縮影片</button>
+            <button class="btn hidden" id="downloadBtn" style="margin-left: 12px;">💾 下載壓縮影片</button>
         </div>
     </div>
 
-    <script type="module">
-        import { FFmpeg } from 'https://esm.sh/@ffmpeg/ffmpeg@0.12.10';
-        import { fetchFile, toBlobURL } from 'https://esm.sh/@ffmpeg/util@0.12.1';
-        
-        let ffmpeg = null;
-        let videoFile = null;
-        let videoInfo = null;
-        let compressedBlob = null;
-
-        // 初始化
-        document.addEventListener('DOMContentLoaded', async () => {
-            ffmpeg = new FFmpeg();
-            ffmpeg.on('log', ({ message }) => console.log(message));
-            ffmpeg.on('progress', ({ progress }) => {
-                const percent = Math.round(progress * 100);
-                document.getElementById('progressBar').style.width = percent + '%';
-            });
-
-            setupEventListeners();
-        });
-
-        function setupEventListeners() {
-            const uploadArea = document.getElementById('uploadArea');
-            const fileInput = document.getElementById('fileInput');
-
-            // 點擊上傳
-            uploadArea.addEventListener('click', () => {
-                console.log('Upload area clicked');
-                fileInput.click();
-            });
-            
-            // 檔案選擇
-            fileInput.addEventListener('change', (e) => {
-                console.log('File selected:', e.target.files[0]);
-                handleFile(e.target.files[0]);
-            });
-            
-            // 拖放
-            uploadArea.addEventListener('dragover', (e) => {
-                e.preventDefault();
-                uploadArea.classList.add('dragover');
-            });
-            uploadArea.addEventListener('dragleave', () => {
-                uploadArea.classList.remove('dragover');
-            });
-            uploadArea.addEventListener('drop', (e) => {
-                e.preventDefault();
-                uploadArea.classList.remove('dragover');
-                handleFile(e.dataTransfer.files[0]);
-            });
-
-            // 模式切換
-            document.querySelectorAll('input[name="mode"]').forEach(radio => {
-                radio.addEventListener('change', (e) => {
-                    document.getElementById('crfOption').classList.toggle('hidden', e.target.value !== 'crf');
-                    document.getElementById('bitrateOption').classList.toggle('hidden', e.target.value !== 'bitrate');
-                    document.getElementById('sizeOption').classList.toggle('hidden', e.target.value !== 'size');
-                    updatePrediction();
-                });
-            });
-
-            // CRF slider
-            document.getElementById('crf').addEventListener('input', (e) => {
-                document.getElementById('crfValue').textContent = e.target.value;
-                updatePrediction();
-            });
-
-            // 所有選項變更時更新預測
-            ['codec', 'bitrate', 'targetSize', 'resolution', 'fps', 'audioBitrate'].forEach(id => {
-                document.getElementById(id).addEventListener('change', updatePrediction);
-            });
-
-            // 壓縮按鈕
-            document.getElementById('compressBtn').addEventListener('click', compressVideo);
-            
-            // 下載按鈕
-            document.getElementById('downloadBtn').addEventListener('click', downloadVideo);
-        }
-
-        async function handleFile(file) {
-            if (!file || !file.type.startsWith('video/')) {
-                alert('請上傳影片檔案');
-                return;
-            }
-
-            videoFile = file;
-            
-            if (!ffmpeg.loaded) {
-                document.getElementById('uploadArea').innerHTML = '<p>⏳ 載入壓縮引擎中...（首次需下載約31MB，請稍候）</p>';
-                
-                try {
-                    const baseURL = 'https://unpkg.com/@ffmpeg/core@0.12.6/dist/esm';
-                    await ffmpeg.load({
-                        coreURL: await toBlobURL(
-                            `${baseURL}/ffmpeg-core.js`,
-                            'text/javascript'
-                        ),
-                        wasmURL: await toBlobURL(
-                            `${baseURL}/ffmpeg-core.wasm`,
-                            'application/wasm'
-                        ),
-                    });
-                    document.getElementById('uploadArea').innerHTML = '<p>📁 點擊或拖放影片檔案</p>';
-                } catch (error) {
-                    document.getElementById('uploadArea').innerHTML = '<p style="color:red">❌ 載入失敗，請重新整理頁面</p>';
-                    console.error(error);
-                    return;
-                }
-            }
-
-            await analyzeVideo(file);
-            document.getElementById('videoInfo').classList.remove('hidden');
-            document.getElementById('optionsPanel').classList.remove('hidden');
-            updatePrediction();
-        }
-
-        async function analyzeVideo(file) {
-            const arrayBuffer = await file.arrayBuffer();
-            await ffmpeg.writeFile('input.mp4', new Uint8Array(arrayBuffer));
-            
-            videoInfo = {
-                name: file.name,
-                size: (file.size / 1024 / 1024).toFixed(2),
-            };
-            
-            document.getElementById('infoContent').innerHTML = `
-                檔案名稱: ${videoInfo.name}<br>
-                檔案大小: ${videoInfo.size} MB<br>
-                格式: ${file.type}
-            `;
-        }
-
-        function updatePrediction() {
-            if (!videoFile || !videoInfo) return;
-            
-            const mode = document.querySelector('input[name="mode"]:checked').value;
-            const duration = 5;
-            const audioBitrate = parseInt(document.getElementById('audioBitrate').value) / 1000;
-            
-            let predictedSize = 0;
-            
-            if (mode === 'size') {
-                predictedSize = parseFloat(document.getElementById('targetSize').value);
-            } else if (mode === 'bitrate') {
-                const videoBitrate = parseFloat(document.getElementById('bitrate').value);
-                predictedSize = ((videoBitrate + audioBitrate) * duration) / 8;
-            } else {
-                const crf = parseInt(document.getElementById('crf').value);
-                const baseBitrate = 5 * Math.exp((23 - crf) * 0.1);
-                predictedSize = ((baseBitrate + audioBitrate) * duration) / 8;
-            }
-            
-            const reduction = ((1 - predictedSize / parseFloat(videoInfo.size)) * 100).toFixed(0);
-            
-            document.getElementById('prediction').innerHTML = `
-                📊 預計輸出大小: <strong>${predictedSize.toFixed(2)} MB</strong> 
-                (壓縮率約 ${reduction > 0 ? reduction : 0}%)
-            `;
-            document.getElementById('prediction').classList.remove('hidden');
-        }
-
-        async function compressVideo() {
-            const compressBtn = document.getElementById('compressBtn');
-            const progress = document.getElementById('progress');
-            
-            compressBtn.disabled = true;
-            compressBtn.textContent = '⏳ 壓縮中...';
-            progress.style.display = 'block';
-            
-            try {
-                const mode = document.querySelector('input[name="mode"]:checked').value;
-                const codec = document.getElementById('codec').value;
-                const resolution = document.getElementById('resolution').value;
-                const fps = document.getElementById('fps').value;
-                const audioBitrate = document.getElementById('audioBitrate').value;
-                
-                let args = ['-i', 'input.mp4'];
-                
-                if (mode === 'crf') {
-                    const crf = document.getElementById('crf').value;
-                    args.push('-c:v', codec, '-crf', crf);
-                } else if (mode === 'bitrate') {
-                    const bitrate = document.getElementById('bitrate').value + 'M';
-                    args.push('-c:v', codec, '-b:v', bitrate);
-                } else {
-                    const targetSize = parseFloat(document.getElementById('targetSize').value);
-                    const duration = 5;
-                    const audioBitrateKbps = parseInt(audioBitrate);
-                    const targetBitrate = ((targetSize * 8 * 1024) / duration) - audioBitrateKbps;
-                    args.push('-c:v', codec, '-b:v', Math.max(500, targetBitrate) + 'k');
-                }
-                
-                if (resolution !== 'original') {
-                    args.push('-vf', `scale=${resolution}`);
-                }
-                
-                if (fps !== 'original') {
-                    args.push('-r', fps);
-                }
-                
-                args.push('-c:a', 'aac', '-b:a', audioBitrate);
-                args.push('output.mp4');
-                
-                await ffmpeg.exec(args);
-                
-                const data = await ffmpeg.readFile('output.mp4');
-                compressedBlob = new Blob([data.buffer], { type: 'video/mp4' });
-                
-                const outputSize = (compressedBlob.size / 1024 / 1024).toFixed(2);
-                const reduction = ((1 - compressedBlob.size / videoFile.size) * 100).toFixed(0);
-                
-                document.getElementById('prediction').innerHTML = `
-                    ✅ 壓縮完成！<br>
-                    原始大小: ${videoInfo.size} MB → 壓縮後: <strong>${outputSize} MB</strong><br>
-                    減少了 ${reduction}% 的檔案大小
-                `;
-                
-                document.getElementById('downloadBtn').classList.remove('hidden');
-                compressBtn.textContent = '✅ 壓縮完成';
-                
-            } catch (error) {
-                alert('壓縮失敗: ' + error.message);
-                compressBtn.disabled = false;
-                compressBtn.textContent = '🚀 開始壓縮';
-            } finally {
-                progress.style.display = 'none';
-            }
-        }
-
-        function downloadVideo() {
-            if (!compressedBlob) return;
-            
-            const url = URL.createObjectURL(compressedBlob);
-            const a = document.createElement('a');
-            a.href = url;
-            a.download = videoFile.name.replace(/\.[^/.]+$/, '') + '_compressed.mp4';
-            a.click();
-            URL.revokeObjectURL(url);
-        }
-    </script>
+    <script type="module" src="app.js"></script>
 </body>
 </html>
