@@ -4,14 +4,11 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>安全影片壓縮工具</title>
-    <!-- 修正：使用正確的CDN -->
-    <script type="module">
-        import { FFmpeg } from 'https://unpkg.com/@ffmpeg/ffmpeg@0.12.10/dist/esm/index.js';
-        import { toBlobURL } from 'https://unpkg.com/@ffmpeg/util@0.12.1/dist/esm/index.js';
-        window.FFmpeg = FFmpeg;
-        window.toBlobURL = toBlobURL;
-    </script>
+    <!-- 修正：改用 UMD 版本，避免 ESM Worker CORS 問題 -->
+    <script src="https://cdn.jsdelivr.net/npm/@ffmpeg/ffmpeg@0.12.7/dist/umd/ffmpeg.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@ffmpeg/util@0.12.1/dist/umd/index.js"></script>
     <style>
+        /* CSS 保持不變，略去... */
         * { margin: 0; padding: 0; box-sizing: border-box; }
         body {
             font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
@@ -197,7 +194,7 @@
                 <div class="option-group">
                     <label>編碼器</label>
                     <select id="codec">
-                        <option value="libx264">H.264 (相容性好，推薦)</option>
+                        <option value="libx264">H.264 (相容性好)</option>
                         <option value="libx265">H.265 (更小但較慢)</option>
                     </select>
                 </div>
@@ -269,7 +266,8 @@
             <button class="btn hidden" id="downloadBtn" style="margin-left: 12px;">💾 下載壓縮影片</button>
         </div>
     </div>
-
-    <script type="module" src="app.js"></script>
+    
+    <!-- 改為普通 script 載入，不使用 type="module" -->
+    <script src="app.js"></script>
 </body>
 </html>
